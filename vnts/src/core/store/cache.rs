@@ -142,7 +142,7 @@ impl AppCache {
         let store = WireGuardConfigStore { configs };  
         let content = serde_json::to_string_pretty(&store)?;  
         fs::write(config_path, content)?;  
-        log::info!("成功保存 {} 个WireGuard配置到 {:?}", configs.len(), config_path);  
+        log::info!("成功保存 {} 个WireGuard配置到 {:?}", count, config_path); 
         Ok(())  
     }  
 }
