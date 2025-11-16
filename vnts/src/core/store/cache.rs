@@ -11,7 +11,33 @@ use boringtun::x25519::{StaticSecret, PublicKey};
 use crate::cipher::Aes256GcmCipher;
 use crate::core::entity::{NetworkInfo, WireGuardConfig};
 use crate::core::store::expire_map::ExpireMap;
-  
+
+pub use cache::load_or_generate_server_wg_keys;
+
+// 获取 vnts_wg 目录  
+fn get_wg_dir() -> PathBuf {  
+    let program_dir = if let Ok(exe_path) = std::env::current_exe() {  
+        if let Some(dir) = exe_path.parent() {  
+            dir.to_path_buf()  
+        } else {  
+            PathBuf::from(".")  
+        }  
+    } else {  
+        PathBuf::from(".")  
+    };  
+      
+    let wg_dir = program_dir.join("vnts_wg");  
+      
+    // 确保目录存在  
+    if !wg_dir.exists() {  
+        if let Err(e) = fs::create_dir_all(&wg_dir) {  
+            log::warn!("创建 vnts_wg 目录失败: {:?}", e);  
+        }  
+    }  
+      
+    wg_dir  
+}  
+
 #[derive(Serialize, Deserialize)]  
 struct WireGuardConfigStore {  
     configs: Vec<WireGuardConfig>,  
@@ -21,46 +47,6 @@ struct WireGuardConfigStore {
 struct ServerWgKeys {  
     secret_key: Vec<u8>,  
     public_key: Vec<u8>,  
-}
-
-// 加载或生成服务器WireGuard密钥对  
-pub fn load_or_generate_server_wg_keys() -> (StaticSecret, PublicKey) {  
-    let key_path = get_program_dir().join("vnts_wg_server_keys.json");  
-      
-    if key_path.exists() {  
-        if let Ok(content) = fs::read_to_string(&key_path) {  
-            if let Ok(keys) = serde_json::from_str::<ServerWgKeys>(&content) {  
-                if keys.secret_key.len() == 32 {  
-                    let mut secret_bytes = [0u8; 32];  
-                    secret_bytes.copy_from_slice(&keys.secret_key);  
-                    let secret = StaticSecret::from(secret_bytes);  
-                    let public = PublicKey::from(&secret);  
-                    log::info!("成功加载服务器WireGuard密钥对");  
-                    return (secret, public);  
-                }  
-            }  
-        }  
-    }  
-      
-    // 生成新密钥对  
-    let secret = StaticSecret::random_from_rng(rand::thread_rng());  
-    let public = PublicKey::from(&secret);  
-      
-    // 保存密钥对  
-    let keys = ServerWgKeys {  
-        secret_key: secret.to_bytes().to_vec(),  
-        public_key: public.as_bytes().to_vec(),  
-    };  
-      
-    if let Ok(content) = serde_json::to_string_pretty(&keys) {  
-        if let Err(e) = fs::write(&key_path, content) {  
-            log::warn!("保存服务器WireGuard密钥对失败: {:?}", e);  
-        } else {  
-            log::info!("成功保存服务器WireGuard密钥对到 {:?}", key_path);  
-        }  
-    }  
-      
-    (secret, public)  
 }
 
 #[derive(Clone)]
@@ -118,16 +104,6 @@ impl VntContext {
     }
 }
 
-// 获取程序所在目录  
-fn get_program_dir() -> PathBuf {  
-    if let Ok(exe_path) = std::env::current_exe() {  
-        if let Some(dir) = exe_path.parent() {  
-            return dir.to_path_buf();  
-        }  
-    }  
-    PathBuf::from(".")  
-}
-
 impl AppCache {
     pub fn new() -> Self {
         let wg_group_map: Arc<DashMap<[u8; 32], WireGuardConfig>> = Default::default();
@@ -172,9 +148,9 @@ impl AppCache {
             wg_group_map,
         }
     }
-    // 加载WireGuard配置  
+    // 加载WireGuard客户端配置  
     pub fn load_wg_configs(&self) -> anyhow::Result<()> {  
-        let config_path = get_program_dir().join("vnts_wg_configs.json");  
+        let config_path = get_wg_dir().join("client_configs.json");  
         if !config_path.exists() {  
             log::info!("WireGuard配置文件不存在: {:?}", config_path);  
             return Ok(());  
@@ -187,11 +163,11 @@ impl AppCache {
         }  
         log::info!("成功加载 {} 个WireGuard配置从 {:?}", self.wg_group_map.len(), config_path);  
         Ok(())  
-    }  
+    }   
       
-    // 保存WireGuard配置  
+    // 保存WireGuard客户端配置  
     pub fn save_wg_configs(&self) -> anyhow::Result<()> {  
-        let config_path = get_program_dir().join("vnts_wg_configs.json");  
+        let config_path = get_wg_dir().join("client_configs.json");  
         let configs: Vec<WireGuardConfig> = self.wg_group_map  
             .iter()  
             .map(|entry| entry.value().clone())  
@@ -204,6 +180,47 @@ impl AppCache {
         log::info!("成功保存 {} 个WireGuard配置到 {:?}", count, config_path);  
         Ok(())  
     }  
+
+    // 加载或生成服务器WireGuard密钥对  
+    pub fn load_or_generate_server_wg_keys() -> (StaticSecret, PublicKey) {  
+    let key_path = get_wg_dir().join("server_keys.json");  
+      
+    // 尝试加载现有密钥  
+    if key_path.exists() {  
+        if let Ok(content) = fs::read_to_string(&key_path) {  
+            if let Ok(keys) = serde_json::from_str::<ServerWgKeys>(&content) {  
+                if keys.secret_key.len() == 32 {  
+                    let mut secret_bytes = [0u8; 32];  
+                    secret_bytes.copy_from_slice(&keys.secret_key);  
+                    let secret = StaticSecret::from(secret_bytes);  
+                    let public = PublicKey::from(&secret);  
+                    log::info!("成功加载服务器WireGuard密钥对从 {:?}", key_path);  
+                    return (secret, public);  
+                }  
+            }  
+        }  
+        log::warn!("加载服务器WireGuard密钥对失败,将生成新的密钥对");  
+    }
+
+    // 生成新密钥对  
+    let secret = StaticSecret::random_from_rng(rand::thread_rng());  
+    let public = PublicKey::from(&secret);  
+      
+    // 保存密钥对  
+    let keys = ServerWgKeys {  
+        secret_key: secret.to_bytes().to_vec(),  
+        public_key: public.as_bytes().to_vec(),  
+    };  
+      
+    if let Ok(content) = serde_json::to_string_pretty(&keys) {  
+        if let Err(e) = fs::write(&key_path, content) {  
+            log::warn!("保存服务器WireGuard密钥对失败: {:?}", e);  
+        } else {  
+            log::info!("成功生成并保存服务器WireGuard密钥对到 {:?}", key_path);  
+        }  
+    }
+
+    (secret, public)
 }
 
 impl AppCache {
