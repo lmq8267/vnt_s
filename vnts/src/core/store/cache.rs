@@ -9,8 +9,9 @@ use serde::{Serialize, Deserialize};
 use boringtun::x25519::{StaticSecret, PublicKey};
 
 use crate::cipher::Aes256GcmCipher;
-use crate::core::entity::{NetworkInfo, WireGuardConfig};
+use crate::core::entity::{NetworkInfo, WireGuardConfig, ClientInfo};
 use crate::core::store::expire_map::ExpireMap;
+use ipnetwork::Ipv4Network;
 
 // 获取 vnts_wg 目录  
 fn get_wg_dir() -> PathBuf {  
