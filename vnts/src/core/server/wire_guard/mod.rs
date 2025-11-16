@@ -46,6 +46,11 @@ impl WireGuardGroup {
             return Ok(());
         }
         let config = self.handshake(&buf)?;
+        let network_info = self
+            .cache
+            .virtual_network
+            .get(&config.group_id)
+            .context("wg配置已过期")?;
         // 检查IP是否被其他客户端使用  
         {  
             let guard = network_info.read();  
@@ -60,11 +65,6 @@ impl WireGuardGroup {
                 }  
             }  
         }
-        let network_info = self
-            .cache
-            .virtual_network
-            .get(&config.group_id)
-            .context("wg配置已过期")?;
         let (network_receiver, broadcast_ip, mask_ip, gateway_ip) = {
             let mut guard = network_info.write();
             let broadcast_ip = guard.network_ip | (!guard.mask_ip);
