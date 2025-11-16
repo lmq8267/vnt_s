@@ -67,10 +67,6 @@ function postLogin(requestData, success, error) {
     post("api/login", requestData, success, error)
 }
 
-function postGroupList(requestData, success, error) {
-    post("api/group_list", requestData, success, error)
-}
-
 function postGroupInfo(requestData, success, error) {
     post("api/group_info", requestData, success, error)
 }
