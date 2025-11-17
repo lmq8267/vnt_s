@@ -419,8 +419,10 @@ impl WireGuard {
         } 
 
         // 点对点转发 - 路由查找逻辑  
-        let mut target_ip = dest_ip;  
-        let gateway_ip_for_lookup = dest_ip;
+        let gateway_ip_for_lookup: Ipv4Addr;  
+        // 检查目标 IP 是否在虚拟网络范围内    
+        let in_network = (u32::from(dest_ip) & u32::from(self.mask_ip))     
+            == (u32::from(self.gateway_ip) & u32::from(self.mask_ip)); 
           
         // 如果目标不在虚拟网络内，进行路由查找  
         if !in_network {  
@@ -438,7 +440,10 @@ impl WireGuard {
                 log::debug!("WireGuard: 未找到到 {} 的路由，丢弃数据包", dest_ip);  
                 return Ok(());  
             }  
-        }
+        } else {  
+            // 在虚拟网络内，直接使用 dest_ip  
+            gateway_ip_for_lookup = dest_ip;  
+        } 
 
         // 使用 target_ip 查找客户端并转发  
         let (server_secret, peer_addr, peer_tcp_sender, peer_wg_sender) = {  
