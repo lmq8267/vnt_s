@@ -54,7 +54,7 @@ impl NetworkInfo {
             gateway_ip,
             epoch: 0,
             clients: Default::default(),
-            password: None,
+            route_table: HashMap::new(),
         }
     }
 }
