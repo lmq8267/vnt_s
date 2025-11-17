@@ -739,6 +739,18 @@ pub async fn generate_ip(
         log::error!("地址使用完:{:?}", lock);
         Err(Error::AddressExhausted)?
     }
+    // 如果这是第一个客户端，根据分配的 IP 更新网段信息  
+    if lock.clients.is_empty() {  
+        let actual_network = virtual_ip & netmask;  
+        lock.network_ip = actual_network;  
+        log::info!(  
+            "更新组网 {} 的网段信息: network={}, mask={}, gateway={}",  
+            group_id,  
+            Ipv4Addr::from(actual_network),  
+            Ipv4Addr::from(netmask),  
+            Ipv4Addr::from(gateway)  
+        );  
+    }
     let info = if old_ip == 0 {
         lock.clients
             .entry(virtual_ip)
