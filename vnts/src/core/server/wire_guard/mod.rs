@@ -157,6 +157,9 @@ pub struct WireGuard {
     wg_source_addr: SocketAddr,
     udp: Arc<UdpSocket>,
     data_channel_map: Arc<Mutex<HashMap<SocketAddr, Sender<Vec<u8>>>>>,
+    // 当前 WireGuard 客户端的路由表  
+    route_table: Vec<(u32, u32, Ipv4Addr)>,  
+    public_key: [u8; 32], 
 }
 
 impl WireGuard {
@@ -180,6 +183,15 @@ impl WireGuard {
             rand::thread_rng().next_u32(),
             None,
         );
+        // 解析路由配置为路由表格式  
+        let mut route_table = Vec::new();  
+        for route in &config.routes {  
+            if let Ok(lan_net) = Ipv4Network::from_str(&route.lan_network) {  
+                let dest = u32::from(lan_net.network());  
+                let mask = u32::from(lan_net.mask());  
+                route_table.push((dest, mask, route.vnt_cli_ip));  
+            }  
+        } 
         Self {
             network_info,
             ip: config.ip,
@@ -192,7 +204,22 @@ impl WireGuard {
             wg_source_addr,
             udp,
             data_channel_map,
+            route_table,  
+            public_key: config.public_key,
         }
+    }
+    /// 路由查找函数  
+    fn route_lookup(&self, dest_ip: &Ipv4Addr) -> Option<Ipv4Addr> {  
+        if self.route_table.is_empty() {  
+            return None;  
+        }  
+        let ip = u32::from_be_bytes(dest_ip.octets());  
+        for (dest, mask, gateway) in &self.route_table {  
+            if *mask & ip == *dest {  
+                return Some(*gateway);  
+            }  
+        }  
+        None  
     }
     pub async fn start(
         mut self,
@@ -343,85 +370,105 @@ impl WireGuard {
         data: &mut [u8],
         dst_buf: &mut [u8],
     ) -> anyhow::Result<()> {
-        if dest_ip == self.gateway_ip {
-            if self.ping(data, src_ip, dest_ip).is_ok() {
-                if let Err(e) = self.handle_ipv4_data(&data, dst_buf).await {
-                    log::warn!("发送ping回应到wg失败,{:?}", e)
-                }
-            }
-            return Ok(());
+        // 网关 ping 处理  
+        if dest_ip == self.gateway_ip {  
+            if let Some(ipv4_packet) = IpV4Packet::new(data) {  
+                if ipv4_packet.protocol() == ipv4::protocol::Protocol::Icmp {  
+                    if let Some(icmp_packet) = icmp(&ipv4_packet.payload()) {  
+                        if icmp_packet.kind() == Kind::EchoRequest {  
+                            self.reply_ping(src_ip, dest_ip, icmp_packet, dst_buf)  
+                                .await?;  
+                            return Ok(());  
+                        }  
+                    }  
+                }  
+            }  
         }
-        if dest_ip.is_broadcast() || dest_ip == self.broadcast_ip {
-            // 广播
-            let x: Vec<_> = self
-                .network_info
-                .read()
-                .clients
-                .values()
-                .filter(|v| v.online && v.virtual_ip != u32::from(self.ip))
-                .map(|v| {
-                    (
-                        v.address,
-                        v.tcp_sender.clone(),
-                        v.server_secret,
-                        v.wg_sender.clone(),
-                    )
-                })
-                .collect();
-            for (peer_addr, peer_tcp_sender, server_secret, peer_wg_sender) in x {
-                if let Err(e) = self
-                    .send_one(
-                        peer_addr,
-                        peer_tcp_sender,
-                        peer_wg_sender,
-                        server_secret,
-                        src_ip,
-                        dest_ip,
-                        data,
-                        dst_buf,
-                    )
-                    .await
-                {
-                    log::warn!("wg广播失败 {} {} {:?}", src_ip, peer_addr, e);
-                }
-            }
-            return Ok(());
+        // 广播处理  
+        if dest_ip.is_broadcast() || dest_ip == self.broadcast_ip {  
+            let guard = self.network_info.read();  
+            for (ip, info) in guard.clients.iter() {  
+                let dest_ip: Ipv4Addr = (*ip).into();  
+                if dest_ip == src_ip {  
+                    continue;  
+                }  
+                if !info.online {  
+                    continue;  
+                }  
+                let server_secret = info.server_secret;  
+                let peer_addr = info.address;  
+                let peer_tcp_sender = info.tcp_sender.clone();  
+                let peer_wg_sender = info.wg_sender.clone();  
+                drop(guard);  
+                if let Err(e) = self  
+                    .send_one(  
+                        server_secret,  
+                        peer_addr,  
+                        peer_tcp_sender,  
+                        peer_wg_sender,  
+                        data,  
+                        dst_buf,  
+                    )  
+                    .await  
+                {  
+                    log::warn!("{:?}", e);  
+                }  
+            }  
+            return Ok(());  
+        }  
+
+        // 点对点转发 - 路由查找逻辑  
+        let mut target_ip = dest_ip;  
+          
+        // 检查目标 IP 是否在虚拟网络范围内  
+        let in_network = (u32::from(dest_ip) & u32::from(self.mask_ip))   
+            == (u32::from(self.gateway_ip) & u32::from(self.mask_ip));  
+          
+        // 如果目标不在虚拟网络内，进行路由查找  
+        if !in_network {  
+            if let Some(gateway_ip) = self.route_lookup(&dest_ip) {  
+                // 找到路由网关，修改目标 IP  
+                log::debug!(  
+                    "WireGuard路由: {} -> {} (网关: {})",  
+                    dest_ip,  
+                    dest_ip,  
+                    gateway_ip  
+                );  
+                target_ip = gateway_ip;  
+            } else {  
+                // 没有匹配的路由，丢弃数据包  
+                log::debug!("WireGuard: 未找到到 {} 的路由，丢弃数据包", dest_ip);  
+                return Ok(());  
+            }  
         }
 
-        let (server_secret, peer_addr, peer_tcp_sender, peer_wg_sender) = {
-            let guard = self.network_info.read();
-            if let Some(dest_client_info) = guard.clients.get(&dest_ip.into()) {
-                if !dest_client_info.online {
-                    Err(anyhow!("目标不在线"))?
-                }
-                if !dest_client_info.virtual_ip == u32::from(self.ip) {
-                    Err(anyhow!("阻止回路"))?
-                }
-                let dest_link_addr = dest_client_info.address;
-                let server_secret = dest_client_info.server_secret;
-                (
-                    server_secret,
-                    dest_link_addr,
-                    dest_client_info.tcp_sender.clone(),
-                    dest_client_info.wg_sender.clone(),
-                )
-            } else {
-                Err(anyhow!("目标未注册"))?
-            }
+        // 使用 target_ip 查找客户端并转发  
+        let (server_secret, peer_addr, peer_tcp_sender, peer_wg_sender) = {  
+            let guard = self.network_info.read();  
+            if let Some(dest_client_info) = guard.clients.get(&target_ip.into()) {  
+                if !dest_client_info.online {  
+                    Err(anyhow!("目标不在线"))?  
+                }  
+                let server_secret = dest_client_info.server_secret;  
+                let peer_addr = dest_client_info.address;  
+                let peer_tcp_sender = dest_client_info.tcp_sender.clone();  
+                let peer_wg_sender = dest_client_info.wg_sender.clone();  
+                (server_secret, peer_addr, peer_tcp_sender, peer_wg_sender)  
+            } else {  
+                Err(anyhow!("目标未注册"))?  
+            }  
         };
 
-        self.send_one(
-            peer_addr,
-            peer_tcp_sender,
-            peer_wg_sender,
-            server_secret,
-            src_ip,
-            dest_ip,
-            data,
-            dst_buf,
-        )
-        .await?;
-        Ok(())
+        self.send_one(  
+            server_secret,  
+            peer_addr,  
+            peer_tcp_sender,  
+            peer_wg_sender,  
+            data,  
+            dst_buf,  
+        )  
+        .await?;  
+        Ok(())  
     }
     async fn send_one(
         &self,
