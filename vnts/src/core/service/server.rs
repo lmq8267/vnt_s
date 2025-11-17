@@ -742,6 +742,11 @@ pub async fn generate_ip(
             if ip == lock.gateway_ip {
                 continue;
             }
+            // 跳过任何网段的 .1 地址  
+            let host_part = ip & !netmask;  
+            if host_part == 1 {  
+                continue;  
+            }
             if !lock.clients.contains_key(&ip) {
                 virtual_ip = ip;
                 break;
