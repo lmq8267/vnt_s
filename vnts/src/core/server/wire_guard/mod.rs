@@ -378,6 +378,14 @@ impl WireGuard {
             dest_ip,  
             data.len()  
         );
+        if data.len() >= 20 {  
+            let ipv4_dest = Ipv4Addr::new(data[16], data[17], data[18], data[19]);  
+            log::warn!(  
+                "[WG转发] data内部IPv4目标IP: {}, 参数dest_ip: {}",  
+                ipv4_dest,  
+                dest_ip  
+            );  
+        }
         // 网关 ping 处理  
         if dest_ip == self.gateway_ip {  
             log::warn!("[WG转发] 目标是网关IP {}, 处理ping", dest_ip);
