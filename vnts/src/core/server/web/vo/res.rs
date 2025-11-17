@@ -116,8 +116,3 @@ impl NetworkInfo {
         }
     }
 }
-
-#[derive(Debug, Serialize, Deserialize)]  
-pub struct CheckPasswordResult {  
-    pub require_password: bool,  
-}
