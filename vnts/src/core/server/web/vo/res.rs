@@ -1,11 +1,10 @@
-use crate::core::entity::WireGuardConfig;
+use crate::core::entity::{WireGuardConfig, RouteConfig}; 
 use base64::engine::general_purpose;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::net::{Ipv4Addr, SocketAddr};
-use crate::core::entity::{WireGuardConfig, RouteConfig}; 
 
-#[derive(Debug, Serialize, Deserialize)]  
+#[derive(Clone, Debug, Serialize, Deserialize)]   
 pub struct RouteConfigRes {  
     pub vnt_cli_ip: Ipv4Addr,  
     pub lan_network: String,  
