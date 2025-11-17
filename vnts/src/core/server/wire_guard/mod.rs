@@ -420,10 +420,7 @@ impl WireGuard {
 
         // 点对点转发 - 路由查找逻辑  
         let mut target_ip = dest_ip;  
-          
-        // 检查目标 IP 是否在虚拟网络范围内  
-        let in_network = (u32::from(dest_ip) & u32::from(self.mask_ip))   
-            == (u32::from(self.gateway_ip) & u32::from(self.mask_ip));  
+        let gateway_ip_for_lookup = dest_ip;
           
         // 如果目标不在虚拟网络内，进行路由查找  
         if !in_network {  
@@ -435,7 +432,7 @@ impl WireGuard {
                     dest_ip,  
                     gateway_ip  
                 );  
-                target_ip = gateway_ip;  
+                gateway_ip_for_lookup = gateway_ip;  
             } else {  
                 // 没有匹配的路由，丢弃数据包  
                 log::debug!("WireGuard: 未找到到 {} 的路由，丢弃数据包", dest_ip);  
@@ -446,7 +443,7 @@ impl WireGuard {
         // 使用 target_ip 查找客户端并转发  
         let (server_secret, peer_addr, peer_tcp_sender, peer_wg_sender) = {  
             let guard = self.network_info.read();  
-            if let Some(dest_client_info) = guard.clients.get(&target_ip.into()) {  
+            if let Some(dest_client_info) = guard.clients.get(&gateway_ip_for_lookup.into()) {  
                 if !dest_client_info.online {  
                     Err(anyhow!("目标不在线"))?  
                 }  
