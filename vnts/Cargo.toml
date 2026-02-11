@@ -64,6 +64,12 @@ static-files = "0.2"
 rand = "0.8.5"
 chrono = "0.4.23"
 
+[target.x86_64-pc-windows-msvc.build-dependencies]
+thunk-rs = { version = "0.3.3", features = ["win7"] }
+
+[target.i686-pc-windows-msvc.build-dependencies]
+thunk-rs = { version = "0.3.3", features = ["win7"] }
+
 [profile.release]
 opt-level = 'z'
 debug = 0

@@ -54,12 +54,20 @@ jobs:
             
           - TARGET: x86_64-unknown-linux-musl
             OS: ubuntu-latest
-            FEATURES: normal,web
+            FEATURES: ring-cipher,web
             STRIP: strip
             
           - TARGET: x86_64-unknown-freebsd
             OS: ubuntu-latest
             FEATURES: normal,web
+
+          - TARGET: i686-pc-windows-msvc
+            OS: windows-latest
+            FEATURES: ring-cipher,web
+            
+          - TARGET: x86_64-pc-windows-msvc
+            OS: windows-latest
+            FEATURES: ring-cipher,web
             
     runs-on: ${{ matrix.OS }}
     env:
@@ -74,7 +82,9 @@ jobs:
       
       - name: 设置编译环境
         if: ${{ matrix.TARGET != 'x86_64-unknown-freebsd' }}
+        shell: bash
         run: |
+            if [[ $OS =~ ^ubuntu.*$ ]]; then
             case $TARGET in 
               mipsel-unknown-linux-musl)
                 MUSL_URI=mipsel-linux-musl-cross
@@ -114,6 +124,7 @@ jobs:
               sudo apt-get update && sudo apt-get install -qq musl-tools
             fi
             sudo timedatectl set-timezone "Asia/Shanghai"
+            fi
             cat >>~/.cargo/config <<EOF
             [target.x86_64-unknown-linux-musl]
             linker = "x86_64-linux-musl-gcc"
@@ -138,7 +149,11 @@ jobs:
             rustflags = ["-C", "target-feature=+crt-static","-C", "strip=symbols", "--remap-path-prefix=/=."]
             [target.mips-unknown-linux-musl]
             linker = "mips-linux-musl-gcc"
-            rustflags = ["-C", "target-feature=+crt-static","-C", "strip=symbols", "--remap-path-prefix=/=."]  
+            rustflags = ["-C", "target-feature=+crt-static","-C", "strip=symbols", "--remap-path-prefix=/=."]
+            [target.x86_64-pc-windows-msvc]
+            rustflags = ["-C", "target-feature=+crt-static","-C", "strip=symbols"]    
+            [target.i686-pc-windows-msvc]
+            rustflags = ["-C", "target-feature=+crt-static","-C", "strip=symbols"] 
             EOF
             
       - name: 添加编译平台
@@ -147,7 +162,6 @@ jobs:
       - name: 开始编译
         if: ${{ matrix.TARGET != 'x86_64-unknown-freebsd' }}
         run: |
-          sudo timedatectl set-timezone "Asia/Shanghai"
           cd vnts
           cargo build --release --target ${{ matrix.target }} --features ${{ matrix.FEATURES }}
         
@@ -169,15 +183,44 @@ jobs:
           install-only: true
           
       - name: 打包压缩
-        run: upx --lzma --best vnts/target/${{ matrix.target }}/release/vnts || true
+        run: upx --lzma --best vnts/target/${{ matrix.target }}/release/vnts* || true
 
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
          name: vnts-${{ matrix.target }}
-         path: vnts/target/${{ matrix.target }}/release/vnts
-        
-      - 
+         path: |
+           vnts/target/${{ matrix.target }}/release/vnts
+           vnts/target/${{ matrix.target }}/release/vnts.exe
+
+      - name: 生成构建摘要
+        shell: bash
+        run: |
+          echo "## 📦 构建摘要 - ${{ matrix.target }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 构建信息" >> $GITHUB_STEP_SUMMARY
+          echo "- **构建时间**: $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_STEP_SUMMARY
+          echo "- **提交哈希**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📁 程序文件" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ matrix.OS }}" == "windows-latest" ]]; then
+            FILE_PATH="vnts/target/${{ matrix.target }}/release/vnts.exe"
+            FILE_NAME="vnts.exe"
+          else
+            FILE_PATH="vnts/target/${{ matrix.target }}/release/vnts"
+            FILE_NAME="vnts"
+          fi
+          if [ -f "$FILE_PATH" ]; then
+            FILE_SIZE=$(ls -lh "$FILE_PATH" | awk '{print $5}')
+            echo "- **文件名**: $FILE_NAME" >> $GITHUB_STEP_SUMMARY
+            echo "- **大小**: $FILE_SIZE" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📥 下载方式" >> $GITHUB_STEP_SUMMARY
+          echo "1. 点击下方的 **Artifacts** 下载构建产物" >> $GITHUB_STEP_SUMMARY
+          echo "2. 或在 Actions 页面找到本次构建，下载 artifact" >> $GITHUB_STEP_SUMMARY
+
+      -
        name: 删除工作流
        uses: Mattraks/delete-workflow-runs@main
        with:

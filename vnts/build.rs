@@ -3,6 +3,12 @@ use static_files::resource_dir;
 use std::fs::File;
 use std::io::Write;
 fn main() {
+    // 配置 thunk-rs 来链接 Windows 7 兼容库，并自动设置链接参数
+    #[cfg(windows)]
+    {
+        thunk::thunk();
+    }
+    
     std::fs::create_dir_all("src/proto").unwrap();
     protobuf_codegen::Codegen::new()
         .pure()
