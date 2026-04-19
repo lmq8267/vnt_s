@@ -2,6 +2,11 @@ name: 编译vnts
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '发布版本号（留空则仅构建）'
+        required: false
+        default: ''
 
 env:
   CARGO_TERM_COLOR: always
@@ -10,9 +15,10 @@ env:
 permissions:
   contents: write
   actions: write
-  
+
 jobs:
- build:
+  build:
+    name: 🛠 ${{ matrix.TARGET }}
     strategy:
       fail-fast: false
       matrix:
@@ -21,42 +27,47 @@ jobs:
             OS: ubuntu-latest
             FEATURES: normal,web
             STRIP: aarch64-linux-musl-strip
-            
+
           - TARGET: armv7-unknown-linux-musleabihf
             OS: ubuntu-latest
             FEATURES: normal,web
             STRIP: armv7l-linux-musleabihf-strip
-            
+
           - TARGET: armv7-unknown-linux-musleabi
             OS: ubuntu-latest
             FEATURES: normal,web
             STRIP: armv7m-linux-musleabi-strip
-            
+
           - TARGET: arm-unknown-linux-musleabihf
             OS: ubuntu-latest
             FEATURES: normal,web
             STRIP: arm-linux-musleabihf-strip
-            
+
           - TARGET: arm-unknown-linux-musleabi
             OS: ubuntu-latest
             FEATURES: normal,web
             STRIP: arm-linux-musleabi-strip
-            
+
           - TARGET: mipsel-unknown-linux-musl
             OS: ubuntu-latest
             FEATURES: normal,web
             STRIP: mipsel-linux-musl-strip
-            
+
           - TARGET: mips-unknown-linux-musl
             OS: ubuntu-latest
             FEATURES: normal
             STRIP: mips-linux-musl-strip
-            
+
           - TARGET: x86_64-unknown-linux-musl
             OS: ubuntu-latest
             FEATURES: ring-cipher,web
             STRIP: strip
-            
+
+          - TARGET: i686-unknown-linux-musl
+            OS: ubuntu-latest
+            FEATURES: ring-cipher,web
+            STRIP: i686-linux-musl-strip
+
           - TARGET: x86_64-unknown-freebsd
             OS: ubuntu-latest
             FEATURES: normal,web
@@ -64,166 +75,347 @@ jobs:
           - TARGET: i686-pc-windows-msvc
             OS: windows-latest
             FEATURES: ring-cipher,web
-            
+
           - TARGET: x86_64-pc-windows-msvc
             OS: windows-latest
             FEATURES: ring-cipher,web
-            
+
+          - TARGET: x86_64-apple-darwin
+            OS: macos-latest
+            FEATURES: ring-cipher,web
+
+          - TARGET: aarch64-apple-darwin
+            OS: macos-latest
+            FEATURES: ring-cipher,web
+
     runs-on: ${{ matrix.OS }}
+
     env:
       NAME: vnts_${{ matrix.TARGET }}
       TARGET: ${{ matrix.TARGET }}
       OS: ${{ matrix.OS }}
       STRIP: ${{ matrix.STRIP }}
       FEATURES: ${{ matrix.FEATURES }}
-      
+
     steps:
-      - uses: actions/checkout@v5
-      
+      - uses: actions/checkout@main
+
       - name: 设置编译环境
         if: ${{ matrix.TARGET != 'x86_64-unknown-freebsd' }}
         shell: bash
         run: |
-            if [[ $OS =~ ^ubuntu.*$ ]]; then
-            case $TARGET in 
-              mipsel-unknown-linux-musl)
-                MUSL_URI=mipsel-linux-musl-cross
-                ;;
-              aarch64-unknown-linux-musl)
-                MUSL_URI=aarch64-linux-musl-cross
-                ;;
-              armv7-unknown-linux-musleabihf)
-                MUSL_URI=armv7l-linux-musleabihf-cross
-                ;;
-              armv7-unknown-linux-musleabi)
-                MUSL_URI=armv7m-linux-musleabi-cross
-                ;;
-              arm-unknown-linux-musleabihf)
-                MUSL_URI=arm-linux-musleabihf-cross
-                ;;
-              arm-unknown-linux-musleabi)
-                MUSL_URI=arm-linux-musleabi-cross
-                ;;
-              mips-unknown-linux-musl)
-                MUSL_URI=mips-linux-musl-cross
-                ;;
-              x86_64-unknown-linux-musl)
-                MUSL_URI=x86_64-linux-musl-cross
-                ;;
+          rustup set auto-self-update disable
+          if [[ $OS =~ ^ubuntu.*$ ]]; then
+            case $TARGET in
+              mipsel-unknown-linux-musl) MUSL_URI=mipsel-linux-musl-cross ;;
+              aarch64-unknown-linux-musl) MUSL_URI=aarch64-linux-musl-cross ;;
+              armv7-unknown-linux-musleabihf) MUSL_URI=armv7l-linux-musleabihf-cross ;;
+              armv7-unknown-linux-musleabi) MUSL_URI=armv7m-linux-musleabi-cross ;;
+              arm-unknown-linux-musleabihf) MUSL_URI=arm-linux-musleabihf-cross ;;
+              arm-unknown-linux-musleabi) MUSL_URI=arm-linux-musleabi-cross ;;
+              mips-unknown-linux-musl) MUSL_URI=mips-linux-musl-cross ;;
+              x86_64-unknown-linux-musl) MUSL_URI=x86_64-linux-musl-cross ;;
+              i686-unknown-linux-musl) MUSL_URI=i686-linux-musl-cross ;;
             esac
-              echo "MUSL_URI=${MUSL_URI}" >> $GITHUB_ENV
-              mkdir -p /opt/musl_gcc 
-              wget -c https://github.com/lmq8267/Toolchain/releases/download/musl-cross/$MUSL_URI.tgz -P /opt/musl_gcc/
-              tar zxf /opt/musl_gcc/$MUSL_URI.tgz -C /opt/musl_gcc/
-              sudo ln -s /opt/musl_gcc/$MUSL_URI/bin/*gcc /usr/bin/
-            if [[ $TARGET == mips-unknown-linux-musl ]] || [[ $TARGET == mipsel-unknown-linux-musl ]] ; then
-            rustup install 1.72.1
-            rustup default 1.72.1
+
+            echo "MUSL_URI=${MUSL_URI}" >> $GITHUB_ENV
+
+            mkdir -p /opt/musl_gcc
+            wget -c https://github.com/lmq8267/Toolchain/releases/download/musl-cross/$MUSL_URI.tgz -P /opt/musl_gcc/
+            tar zxf /opt/musl_gcc/$MUSL_URI.tgz -C /opt/musl_gcc/
+            sudo ln -sf /opt/musl_gcc/$MUSL_URI/bin/*gcc /usr/bin/
+
+            if [[ $TARGET == mips-unknown-linux-musl ]] || [[ $TARGET == mipsel-unknown-linux-musl ]]; then
+              rustup install 1.72.1
+              rustup default 1.72.1
+            else
+              rustup install 1.77
+              rustup default 1.77
             fi
-            if [[ $TARGET =~ "x86_64-unknown-linux-musl" ]] ; then
-              sudo apt-get update && sudo apt-get install -qq musl-tools
+
+            if [[ $TARGET == x86_64-unknown-linux-musl ]]; then
+              sudo apt-get update
+              sudo apt-get install -qq musl-tools
             fi
+
             sudo timedatectl set-timezone "Asia/Shanghai"
-            fi
-            cat >>~/.cargo/config <<EOF
-            [target.x86_64-unknown-linux-musl]
-            linker = "x86_64-linux-musl-gcc"
-            rustflags = ["-C", "target-feature=+crt-static","-C", "strip=symbols", "--remap-path-prefix=/=."]
-            [target.aarch64-unknown-linux-musl]
-            linker = "aarch64-linux-musl-gcc"
-            rustflags = ["-C", "target-feature=+crt-static","-C", "strip=symbols", "--remap-path-prefix=/=."]
-            [target.armv7-unknown-linux-musleabihf]
-            linker = "armv7l-linux-musleabihf-gcc"
-            rustflags = ["-C", "target-feature=+crt-static","-C", "strip=symbols", "--remap-path-prefix=/=."]
-            [target.armv7-unknown-linux-musleabi]
-            linker = "armv7m-linux-musleabi-gcc"
-            rustflags = ["-C", "target-feature=+crt-static","-C", "strip=symbols", "--remap-path-prefix=/=."]
-            [target.arm-unknown-linux-musleabihf]
-            linker = "arm-linux-musleabihf-gcc"
-            rustflags = ["-C", "target-feature=+crt-static","-C", "strip=symbols", "--remap-path-prefix=/=."]
-            [target.arm-unknown-linux-musleabi]
-            linker = "arm-linux-musleabi-gcc"
-            rustflags = ["-C", "target-feature=+crt-static","-C", "strip=symbols", "--remap-path-prefix=/=."]
-            [target.mipsel-unknown-linux-musl]
-            linker = "mipsel-linux-musl-gcc"
-            rustflags = ["-C", "target-feature=+crt-static","-C", "strip=symbols", "--remap-path-prefix=/=."]
-            [target.mips-unknown-linux-musl]
-            linker = "mips-linux-musl-gcc"
-            rustflags = ["-C", "target-feature=+crt-static","-C", "strip=symbols", "--remap-path-prefix=/=."]
-            [target.x86_64-pc-windows-msvc]
-            rustflags = ["-C", "target-feature=+crt-static","-C", "strip=symbols"]    
-            [target.i686-pc-windows-msvc]
-            rustflags = ["-C", "target-feature=+crt-static","-C", "strip=symbols"] 
-            EOF
-            
+          else
+              rustup install 1.77
+              rustup default 1.77
+              sudo systemsetup -settimezone Asia/Shanghai || true
+          fi
+
+          cat >> ~/.cargo/config <<EOF
+          [target.x86_64-unknown-linux-musl]
+          linker = "x86_64-linux-musl-gcc"
+          rustflags = ["-C","target-feature=+crt-static","-C","strip=symbols","--remap-path-prefix=/=."]
+          
+          [target.i686-unknown-linux-musl]
+          linker = "i686-linux-musl-gcc"
+          rustflags = ["-C", "target-feature=+crt-static","-C", "strip=symbols","--remap-path-prefix=/=."]
+
+          [target.aarch64-unknown-linux-musl]
+          linker = "aarch64-linux-musl-gcc"
+          rustflags = ["-C","target-feature=+crt-static","-C","strip=symbols","--remap-path-prefix=/=."]
+
+          [target.armv7-unknown-linux-musleabihf]
+          linker = "armv7l-linux-musleabihf-gcc"
+          rustflags = ["-C","target-feature=+crt-static","-C","strip=symbols","--remap-path-prefix=/=."]
+
+          [target.armv7-unknown-linux-musleabi]
+          linker = "armv7m-linux-musleabi-gcc"
+          rustflags = ["-C","target-feature=+crt-static","-C","strip=symbols","--remap-path-prefix=/=."]
+
+          [target.arm-unknown-linux-musleabihf]
+          linker = "arm-linux-musleabihf-gcc"
+          rustflags = ["-C","target-feature=+crt-static","-C","strip=symbols","--remap-path-prefix=/=."]
+
+          [target.arm-unknown-linux-musleabi]
+          linker = "arm-linux-musleabi-gcc"
+          rustflags = ["-C","target-feature=+crt-static","-C","strip=symbols","--remap-path-prefix=/=."]
+
+          [target.mipsel-unknown-linux-musl]
+          linker = "mipsel-linux-musl-gcc"
+          rustflags = ["-C","target-feature=+crt-static","-C","strip=symbols","--remap-path-prefix=/=."]
+
+          [target.mips-unknown-linux-musl]
+          linker = "mips-linux-musl-gcc"
+          rustflags = ["-C","target-feature=+crt-static","-C","strip=symbols","--remap-path-prefix=/=."]
+
+          [target.x86_64-pc-windows-msvc]
+          rustflags = ["-C","target-feature=+crt-static","-C","strip=symbols","--remap-path-prefix=/=."]
+
+          [target.i686-pc-windows-msvc]
+          rustflags = ["-C","target-feature=+crt-static","-C","strip=symbols","--remap-path-prefix=/=."]
+
+          [target.x86_64-apple-darwin]
+          rustflags = ["-C", "target-feature=+crt-static","-C", "strip=symbols","--remap-path-prefix=/=."]
+          
+          [target.aarch64-apple-darwin]
+          rustflags = ["-C", "target-feature=+crt-static","-C", "strip=symbols","--remap-path-prefix=/=."]
+          EOF
+
       - name: 添加编译平台
-        run: rustup target add ${{ matrix.target }}
-        
+        run: rustup target add ${{ matrix.TARGET }}
+
       - name: 开始编译
         if: ${{ matrix.TARGET != 'x86_64-unknown-freebsd' }}
+        shell: bash
         run: |
           cd vnts
-          cargo build --release --target ${{ matrix.target }} --features ${{ matrix.FEATURES }}
-        
+          cargo build --release --target ${{ matrix.TARGET }} --features ${{ matrix.FEATURES }}
+
       - name: 编译FreeBSD
         if: ${{ matrix.TARGET == 'x86_64-unknown-freebsd' }}
+        shell: bash
         run: |
           sudo apt-get update
           sudo apt-get install -y qemu-user qemu-user-static binfmt-support build-essential
           cd vnts
           cargo install cross --git https://github.com/cross-rs/cross
           sed -i 's/const CLOCK_ID: ClockId = ClockId::CLOCK_BOOTTIME;/const CLOCK_ID: ClockId = ClockId::CLOCK_MONOTONIC;/g' ./lib/boringtun/src/sleepyinstant/unix.rs
-          cross build --target ${{ matrix.target }} --release --features $FEATURES
-          
-      - name: 安装 UPX
-        if: ${{ matrix.TARGET != 'x86_64-unknown-freebsd' }}
-        uses: crazy-max/ghaction-upx@v3
+          cross build --target ${{ matrix.TARGET }} --release --features $FEATURES
+
+      - name: 安装UPX
+        if: ${{ matrix.TARGET != 'x86_64-unknown-freebsd' && matrix.OS != 'macos-latest' }}
+        uses: crazy-max/ghaction-upx@master
         with:
           version: v4.2.4
           install-only: true
-          
+
       - name: 打包压缩
-        run: upx --lzma --best vnts/target/${{ matrix.target }}/release/vnts* || true
+        shell: bash
+        if: ${{ matrix.TARGET != 'x86_64-unknown-freebsd' && matrix.OS != 'macos-latest' }}
+        run: |
+          upx --lzma --best vnts/target/${{ matrix.TARGET }}/release/vnts* || true
 
-      - name: 上传产物
-        uses: actions/upload-artifact@v4
-        with:
-         name: vnts-${{ matrix.target }}
-         path: |
-           vnts/target/${{ matrix.target }}/release/vnts
-           vnts/target/${{ matrix.target }}/release/vnts.exe
-
-      - name: 生成构建摘要
+      - name: 整理产物
         shell: bash
         run: |
-          echo "## 📦 构建摘要 - ${{ matrix.target }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📋 构建信息" >> $GITHUB_STEP_SUMMARY
-          echo "- **构建时间**: $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_STEP_SUMMARY
-          echo "- **提交哈希**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📁 程序文件" >> $GITHUB_STEP_SUMMARY
-          if [[ "${{ matrix.OS }}" == "windows-latest" ]]; then
-            FILE_PATH="vnts/target/${{ matrix.target }}/release/vnts.exe"
-            FILE_NAME="vnts.exe"
-          else
-            FILE_PATH="vnts/target/${{ matrix.target }}/release/vnts"
-            FILE_NAME="vnts"
-          fi
-          if [ -f "$FILE_PATH" ]; then
-            FILE_SIZE=$(ls -lh "$FILE_PATH" | awk '{print $5}')
-            echo "- **文件名**: $FILE_NAME" >> $GITHUB_STEP_SUMMARY
-            echo "- **大小**: $FILE_SIZE" >> $GITHUB_STEP_SUMMARY
-          fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📥 下载方式" >> $GITHUB_STEP_SUMMARY
-          echo "1. 点击下方的 **Artifacts** 下载构建产物" >> $GITHUB_STEP_SUMMARY
-          echo "2. 或在 Actions 页面找到本次构建，下载 artifact" >> $GITHUB_STEP_SUMMARY
+          mkdir -p dist
 
-      -
-       name: 删除工作流
-       uses: Mattraks/delete-workflow-runs@main
-       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        retain_days: 0
-        keep_minimum_runs: 0
+          if [[ "${{ matrix.OS }}" == "windows-latest" ]]; then
+            SRC="vnts/target/${{ matrix.TARGET }}/release/vnts.exe"
+            OUT="vnts-${{ matrix.TARGET }}.exe"
+          else
+            SRC="vnts/target/${{ matrix.TARGET }}/release/vnts"
+            OUT="vnts-${{ matrix.TARGET }}"
+          fi
+
+          if [ -f "$SRC" ]; then
+            cp "$SRC" "dist/$OUT"
+            chmod +x "dist/$OUT" || true
+          fi
+
+      - name: 上传产物
+        uses: actions/upload-artifact@main
+        with:
+          name: vnts-${{ matrix.TARGET }}
+          path: dist/*
+
+      - name: 删除工作流
+        uses: Mattraks/delete-workflow-runs@main
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          retain_days: 0
+          keep_minimum_runs: 0
+
+  summary_release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 下载全部产物
+        uses: actions/download-artifact@main
+        with:
+          path: artifacts
+
+      - name: 生成汇总文件清单
+        shell: bash
+        run: |
+          mkdir -p out
+          echo "| 文件名 | 大小 |" > out/files.md
+          echo "|---|---|" >> out/files.md
+
+          find artifacts -type f | sort | while read file; do
+            name=$(basename "$file")
+            size=$(ls -lh "$file" | awk '{print $5}')
+            echo "| $name | $size |" >> out/files.md
+          done
+      - name: 输出统一构建摘要
+        shell: bash
+        run: |
+          if [[ -n "${{ github.event.inputs.release_tag }}" ]]; then
+            RELEASE_TEXT="[${{ github.event.inputs.release_tag }}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${{ github.event.inputs.release_tag }})"
+          else
+            RELEASE_TEXT="未发布（仅构建）请等待构建流程完成，然后刷新页面在下方 **Artifacts** 里下载程序包"
+          fi
+
+          echo "# 📦 vnts 构建结果" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| 项目 | 内容 |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| 构建时间 | $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S') |" >> $GITHUB_STEP_SUMMARY
+          echo "| 提交哈希 | [${GITHUB_SHA::7}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}) |" >> $GITHUB_STEP_SUMMARY
+          echo "| 发布版本 | ${RELEASE_TEXT} |" >> $GITHUB_STEP_SUMMARY
+          echo ""
+
+          echo "## 🐧 Linux" >> $GITHUB_STEP_SUMMARY
+          echo "| 文件名 | 大小 |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          find artifacts -type f | sort | while read file; do
+            name=$(basename "$file")
+            size=$(ls -lh "$file" | awk '{print $5}')
+            if [[ "$name" != *.exe ]] && [[ "$name" != *freebsd* ]] && [[ "$name" != *darwin* ]] && [[ "$name" != *apple* ]]; then
+              echo "| $name | $size |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "## 🪟 Windows" >> $GITHUB_STEP_SUMMARY
+          echo "| 文件名 | 大小 |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          find artifacts -type f | sort | while read file; do
+            name=$(basename "$file")
+            size=$(ls -lh "$file" | awk '{print $5}')
+            if [[ "$name" == *.exe ]]; then
+              echo "| $name | $size |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "## 👿 FreeBSD" >> $GITHUB_STEP_SUMMARY
+          echo "| 文件名 | 大小 |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          find artifacts -type f | sort | while read file; do
+            name=$(basename "$file")
+            size=$(ls -lh "$file" | awk '{print $5}')
+            if [[ "$name" == *freebsd* ]]; then
+              echo "| $name | $size |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "## 🍎 Mac" >> $GITHUB_STEP_SUMMARY
+          echo "| 文件名 | 大小 |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          find artifacts -type f | sort | while read file; do
+            name=$(basename "$file")
+            size=$(ls -lh "$file" | awk '{print $5}')
+            if [[ "$name" == *darwin* ]] || [[ "$name" == *apple-darwin* ]]; then
+              echo "| $name | $size |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+      - name: 生成Release说明
+        if: ${{ github.event.inputs.release_tag != '' }}
+        shell: bash
+        run: |
+          TAG="${{ github.event.inputs.release_tag }}"
+          REPO="${GITHUB_REPOSITORY}"
+
+          {
+            echo "| 项目 | 内容 |"
+            echo "|---|---|"
+            echo "| 发布时间 | $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S') |"
+            echo "| 提交哈希 | [${GITHUB_SHA::7}](${GITHUB_SERVER_URL}/${REPO}/commit/${GITHUB_SHA}) |"
+            echo "| 版本号 | [${TAG}](${GITHUB_SERVER_URL}/${REPO}/releases/tag/${TAG})  ![](https://img.shields.io/github/downloads/${REPO}/${TAG}/total?label=%E4%B8%8B%E8%BD%BD%E6%AC%A1%E6%95%B0&logo=github)|"
+            echo ""
+
+            echo "## 🐧 Linux"
+            echo "| 文件名 | 下载链接 |"
+            echo "|---|---|"
+            find artifacts -type f | sort | while read file; do
+              name=$(basename "$file")
+              url="https://github.com/${REPO}/releases/download/${TAG}/${name}"
+              if [[ "$name" != *.exe ]] && [[ "$name" != *freebsd* ]] && [[ "$name" != *darwin* ]] && [[ "$name" != *apple* ]]; then
+                echo "| ${name} | [点击下载](${url}) |"
+              fi
+            done
+            echo ""
+
+            echo "## 🪟 Windows"
+            echo "| 文件名 | 下载链接 |"
+            echo "|---|---|"
+            find artifacts -type f | sort | while read file; do
+              name=$(basename "$file")
+              url="https://github.com/${REPO}/releases/download/${TAG}/${name}"
+              if [[ "$name" == *.exe ]]; then
+                echo "| ${name} | [点击下载](${url}) |"
+              fi
+            done
+            echo ""
+
+            echo "## 👿 FreeBSD"
+            echo "| 文件名 | 下载链接 |"
+            echo "|---|---|"
+            find artifacts -type f | sort | while read file; do
+              name=$(basename "$file")
+              url="https://github.com/${REPO}/releases/download/${TAG}/${name}"
+              if [[ "$name" == *freebsd* ]]; then
+                echo "| ${name} | [点击下载](${url}) |"
+              fi
+            done
+            echo ""
+
+            echo "## 🍎 Mac"
+            echo "| 文件名 | 下载链接 |"
+            echo "|---|---|"
+            find artifacts -type f | sort | while read file; do
+              name=$(basename "$file")
+              url="https://github.com/${REPO}/releases/download/${TAG}/${name}"
+              if [[ "$name" == *darwin* ]] || [[ "$name" == *apple-darwin* ]]; then
+                echo "| ${name} | [点击下载](${url}) |"
+              fi
+            done
+
+          } > release_notes.md
+      - name: 发布Release
+        if: ${{ github.event.inputs.release_tag != '' }}
+        uses: softprops/action-gh-release@master
+        with:
+          tag_name: ${{ github.event.inputs.release_tag }}
+          name: ${{ github.event.inputs.release_tag }}
+          body_path: release_notes.md
+          files: artifacts/**/*
+          generate_release_notes: false
