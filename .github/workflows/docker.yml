@@ -69,8 +69,8 @@ jobs:
          tags: |
           docker.io/${{ github.repository_owner }}/vnts:${{ env.tags }}
           docker.io/${{ github.repository_owner }}/vnts:latest
-          ghcr.io/${{ github.repository_owner }}/vnts:${{ env.tags }}
-          ghcr.io/${{ github.repository_owner }}/vnts:latest
+          ghcr.io/${{ github.repository_owner }}/vnt_s:${{ env.tags }}
+          ghcr.io/${{ github.repository_owner }}/vnt_s:latest
          platforms: linux/amd64,linux/386,linux/arm64,linux/arm/v7,linux/arm/v6
          context: /opt/vnt
       - name: Build and Push Docker Image
@@ -80,7 +80,7 @@ jobs:
          push: true
          tags: |
           docker.io/${{ github.repository_owner }}/vnts:${{ env.tags }}
-          ghcr.io/${{ github.repository_owner }}/vnts:${{ env.tags }}
+          ghcr.io/${{ github.repository_owner }}/vnt_s:${{ env.tags }}
          platforms: linux/amd64,linux/386,linux/arm64,linux/arm/v7,linux/arm/v6
          context: /opt/vnt
       - name: Save Docker Image
